@@ -1,5 +1,7 @@
 package com.plivo.sampleplivo.ui;
 
+import android.content.pm.PackageManager;
+import android.support.annotation.NonNull;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -8,10 +10,15 @@ import android.view.View;
 
 import com.plivo.sampleplivo.PlivoApplication;
 import com.plivo.sampleplivo.R;
+import com.plivo.sampleplivo.dagger2.DaggerViewComponent;
+import com.plivo.sampleplivo.dagger2.SipModule;
+import com.plivo.sampleplivo.dagger2.ViewComponent;
+import com.plivo.sampleplivo.dagger2.ViewContextModule;
 import com.plivo.sampleplivo.network.Api;
 import com.plivo.sampleplivo.network.BaseResponseObj;
 import com.plivo.sampleplivo.network.CallPostObj;
 import com.plivo.sampleplivo.network.CallResponseObj;
+import com.plivo.sampleplivo.sip.Sip;
 import com.plivo.sampleplivo.utils.AppUtils;
 import com.plivo.sampleplivo.utils.Constants;
 import com.plivo.sampleplivo.vm.CallState;
@@ -30,7 +37,7 @@ import retrofit2.Retrofit;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = MainActivity.class.getSimpleName();
-
+    private static final int SIP_PERMISSION_REQUEST_CODE = 101;
     private static final String ANSWER_URL = "http://plivodirectdial.herokuapp.com/response/sip/route/?DialMusic=real&CLID=";
 
     @Inject
@@ -42,8 +49,8 @@ public class MainActivity extends AppCompatActivity {
     @Inject
     AppUtils appUtils;
 
-    // demo purpose keeping here.
-    private String callUuid;
+    @Inject
+    Sip sip;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -51,8 +58,36 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         ButterKnife.bind(this);
 
-        ((PlivoApplication) getApplication()).getAppComponent().inject(this);
-        callState.setState(CallState.STATE.CALL_IDLE); // init
+        DaggerViewComponent.builder()
+                .appComponent(((PlivoApplication) getApplication()).getAppComponent())
+                .viewContextModule(new ViewContextModule(MainActivity.this))
+                .build();
+        ((PlivoApplication) getApplication()).getAppComponent()
+                .inject(this);
+
+        init();
+    }
+
+    private void init() {
+        callState.setState(CallState.STATE.CALL_IDLE);
+
+        if (appUtils.checkAndRequestPermissions(this, SIP_PERMISSION_REQUEST_CODE)) {
+            sip.init(callListener);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        switch (requestCode) {
+            case SIP_PERMISSION_REQUEST_CODE:
+                if (grantResults != null &&
+                        grantResults.length > 0 &&
+                        grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    sip.init(callListener);
+                }
+                break;
+        }
     }
 
     @OnClick(R.id.call)
@@ -60,54 +95,25 @@ public class MainActivity extends AppCompatActivity {
         button.setEnabled(false);
         switch (callState.getState()) {
             case CALL_IDLE:
-                api.makeCall(new CallPostObj.Builder()
-                                .setTo("919740253357") // todo: need to get number from the keypad
-                                .setFrom("911234567890")
-                                .setAnswerUrl(ANSWER_URL + appUtils.getUniqueId(this))
-                                .build(),
-                        Constants.AUTH_ID)
-                        .enqueue(new Callback<CallResponseObj>() {
-                            @Override
-                            public void onResponse(Call<CallResponseObj> call, Response<CallResponseObj> response) {
-                                button.setEnabled(true);
-                                button.setBackgroundColor(ContextCompat.getColor(MainActivity.this, android.R.color.holo_red_dark));
-                                Log.d(TAG, "response " + response.code());
-                                if (response != null && response.body() != null) {
-                                    callUuid = response.body().getRequestUuid();
-                                    callState.setState(CallState.STATE.ON_CALL);
-
-                                }
-                            }
-
-                            @Override
-                            public void onFailure(Call<CallResponseObj> call, Throwable t) {
-                                Log.e(TAG, "makeCall failed " + call);
-                                button.setEnabled(true);
-                                button.setBackgroundColor(ContextCompat.getColor(MainActivity.this, android.R.color.holo_green_dark));
-                            }
-                        });
+                sip.makeCall();
                 break;
 
             case ON_CALL:
-                api.endCall(Constants.AUTH_ID, callUuid)
-                        .enqueue(new Callback<JsonElement>() {
-                            @Override
-                            public void onResponse(Call<JsonElement> call, Response<JsonElement> response) {
-                                button.setEnabled(true);
-                                button.setBackgroundColor(ContextCompat.getColor(MainActivity.this, android.R.color.holo_green_dark));
-                            }
-
-                            @Override
-                            public void onFailure(Call<JsonElement> call, Throwable t) {
-                                Log.e(TAG, "endCall failed " + call);
-                                button.setEnabled(true);
-                                button.setBackgroundColor(ContextCompat.getColor(MainActivity.this, android.R.color.holo_red_dark));
-                            }
-                        });
+                sip.endCall();
                 break;
         }
-
-
     }
+
+    private Sip.CallListener callListener = new Sip.CallListener() {
+        @Override
+        public void onCallStarted() {
+            callState.setState(CallState.STATE.ON_CALL);
+        }
+
+        @Override
+        public void onCallEnded() {
+            callState.setState(CallState.STATE.CALL_IDLE);
+        }
+    };
 
 }
