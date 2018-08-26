@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">SamplePlivo</string>
-    <string name="call_btn">Call</string>
+    <string name="call">Call</string>
+    <string name="end_call">End Call</string>
 </resources>

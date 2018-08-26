@@ -10,6 +10,8 @@ import android.net.sip.SipProfile;
 import android.net.sip.SipRegistrationListener;
 import android.util.Log;
 
+import com.plivo.sampleplivo.utils.Constants;
+
 import java.text.ParseException;
 
 import javax.inject.Inject;
@@ -17,19 +19,25 @@ import javax.inject.Inject;
 public class Sip {
     private static final String TAG = Sip.class.getSimpleName();
 
-    private static final String USERNAME = "anil180823065556";
     private static final String DOMAIN = "phone.plivo.com";
+    private static final String SIP_URI = "sip:%s@" + DOMAIN;
+    private static final int CALL_TIMEOUT = 30; // seconds
 
     private SipManager sipManager;
     private SipProfile sipProfile;
-    private SipAudioCall sipCall;
+    private SipAudioCall currentCall;
 
-    private CallListener callListener;
+    private SipListener callListener;
+
     private Context context;
 
-    public interface CallListener {
+    private String outSipUri;
+
+    public interface SipListener {
+        void onRegistered(String localProfileUri);
         void onCallStarted();
         void onCallEnded();
+        void onRinging();
     }
 
     @Inject
@@ -37,12 +45,13 @@ public class Sip {
         this.context = context;
     }
 
-    public void init(CallListener listener) {
+    public void init(SipListener listener, String username) {
         callListener = listener;
 
         sipManager = SipManager.newInstance(context);
+        closeProfile();
         try {
-            sipProfile = new SipProfile.Builder(USERNAME, DOMAIN)
+            sipProfile = new SipProfile.Builder(username, DOMAIN)
                     .setPassword("test1234GL")
                     .build();
         } catch (ParseException e) {
@@ -50,7 +59,7 @@ public class Sip {
         }
 
         Intent intent = new Intent();
-        intent.setAction("android.SipDemo.INCOMING_CALL");
+        intent.setAction(Constants.ACTION_INCOMING_CALL);
         PendingIntent pendingIntent = PendingIntent.getBroadcast(context, 0, intent, Intent.FILL_IN_DATA);
         try {
             sipManager.open(sipProfile, pendingIntent, null);
@@ -72,6 +81,11 @@ public class Sip {
                 @Override
                 public void onRegistrationDone(String localProfileUri, long expiryTime) {
                     Log.d(TAG, "onRegistrationDone " + localProfileUri);
+                        outSipUri = String.format(SIP_URI,
+                                localProfileUri.contains(Constants.USERNAME_END1)? Constants.USERNAME_END2 : Constants.USERNAME_END1);
+                        if (callListener != null) {
+                            callListener.onRegistered(localProfileUri);
+                        }
                 }
 
                 @Override
@@ -84,7 +98,7 @@ public class Sip {
         }
     }
 
-    public void closeProfile() {
+    private void closeProfile() {
         if (sipManager == null) {
             return;
         }
@@ -99,29 +113,51 @@ public class Sip {
     }
 
     public void makeCall() {
-        Log.d(TAG, "makeCall");
+        if (outSipUri == null) {
+            return;
+        }
+
+        Log.d(TAG, "makeCall " + outSipUri);
         try {
-            sipCall = sipManager.makeAudioCall(sipProfile.getUriString(), "sip:13215786645741657@app.plivo.com", sipListener, 30);
+            currentCall = sipManager.makeAudioCall(sipProfile.getUriString(), outSipUri, sipListener, CALL_TIMEOUT);
         } catch (SipException e) {
             e.printStackTrace();
+        }
+        if (currentCall.getPeerProfile() != null) {
+            Log.d(TAG, "profile: " + currentCall.getPeerProfile().getDisplayName() + ", " + currentCall.getPeerProfile().getUserName() + ", " + currentCall.getPeerProfile().getSipDomain());
         }
     }
 
     public void endCall() {
         Log.d(TAG, "endCall");
-        if (sipCall != null) {
+        if (currentCall != null) {
             try {
-                sipCall.endCall();
+                currentCall.endCall();
             } catch (SipException e) {
                 e.printStackTrace();
             }
         }
     }
 
+    public void takeIncomingCall(Intent incomingIntent) {
+        Log.d(TAG, "takeIncomingCall");
+        try {
+            currentCall = sipManager.takeAudioCall(incomingIntent, sipListener);
+            currentCall.answerCall(CALL_TIMEOUT);
+            currentCall.startAudio();
+            currentCall.setSpeakerMode(true);
+            if(currentCall.isMuted()) {
+                currentCall.toggleMute();
+            }
+        } catch (SipException e) {
+            e.printStackTrace();
+        }
+    }
+
     private SipAudioCall.Listener sipListener = new SipAudioCall.Listener() {
         @Override
         public void onCallEstablished(SipAudioCall call) {
-            Log.d(TAG, "onCallEstablished");
+            Log.d(TAG, "onCallEstablished ");
             call.startAudio();
             call.setSpeakerMode(true);
             call.toggleMute();
@@ -132,11 +168,31 @@ public class Sip {
 
         @Override
         public void onCallEnded(SipAudioCall call) {
-            Log.d(TAG, "onCallEnded");
+            Log.d(TAG, "onCallEnded ");
             if (callListener != null) {
                 callListener.onCallEnded();
             }
         }
+
+        @Override
+        public void onRinging(SipAudioCall call, SipProfile caller) {
+            Log.d(TAG, "onCallRinging ");
+            try {
+                call.answerCall(CALL_TIMEOUT);
+            } catch (SipException e) {
+                e.printStackTrace();
+            }
+            if (callListener != null) {
+                callListener.onRinging();
+            }
+        }
     };
+
+    public void destroy() {
+        if (currentCall != null) {
+            currentCall.close();
+        }
+        closeProfile();
+    }
 
 }

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="CallState">
+        <attr name="state_call" format="enum">
+            <enum name="na" value="0" />
+            <enum name="idle" value="1" />
+            <enum name="on_call" value="2" />
+        </attr>
+    </declare-styleable>
+</resources>

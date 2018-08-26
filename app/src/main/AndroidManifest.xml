@@ -18,11 +18,23 @@
             </intent-filter>
         </activity>
 
-        <receiver android:name=".vm.IncomingCallReceiver" android:label="Call Receiver" />
+        <activity android:name=".ui.CallActivity" />
+
+        <receiver android:name=".vm.IncomingCallReceiver" android:label="Call Receiver">
+            <intent-filter>
+                <action android:name="android.sample.plivo.INCOMING_CALL" />
+
+            </intent-filter>
+        </receiver>
     </application>
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.USE_SIP" />
+
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <uses-feature android:name="android.hardware.sip.voip" android:required="true" />
     <uses-feature android:name="android.hardware.wifi" android:required="true" />
